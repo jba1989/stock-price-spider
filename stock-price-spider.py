@@ -13,7 +13,7 @@ exportColumns = ['date', 'capacity', 'turnover', 'open', 'high', 'low', 'close',
 main_path = './history/'
 request_count = 0
 error_count = 0
-begin_year = 2022
+begin_year = 2010
 begin_month = 1
 end_year = 2022
 end_month = 9
@@ -28,11 +28,12 @@ def resetProxyList():
     https_proxy_list = []
 
 def getProxy():
-    resetProxyList()
+    if use_proxy:
+        resetProxyList()
 
-    url = 'http://www.us-proxy.org/'
-    response = requests.get(url)
-    parseProxyHtml(response.text)
+        url = 'http://www.us-proxy.org/'
+        response = requests.get(url)
+        parseProxyHtml(response.text)
 
 def parseProxyHtml(html):
     global http_proxy_list
@@ -70,9 +71,7 @@ def checkDir(path):
         os.system('sudo chmod 755 ' + path)
 
 def initialize(from_id = 1101, from_year = begin_year, from_month = begin_month):
-    if use_proxy:
-        getProxy()
-
+    getProxy()
     checkDir(main_path)
     getStockList()
     mainProcess(from_id, from_year, from_month)
@@ -110,9 +109,11 @@ def getHistory(stock_id, year, month):
         res = curl(date, stock_id)
         res_json = res.json()
 
-        if (res_json['stat'] == 'OK'):
+        if res_json['stat'] == 'OK':
             filename = getFilenameWithPath(stock_id, year, month)
             appendToExcel(res_json['data'], filename)
+        elif (res_json['stat'] == '很抱歉，沒有符合條件的資料!'):
+            print('no data')
         else:
             raise Exception('request error')
     except:
@@ -122,12 +123,12 @@ def getHistory(stock_id, year, month):
             error_count += 1
             mainProcess(stock_id, year, month)
         else:
-            print('request error, sleep 1hr, error_count:', error_count)
-            time.sleep(3600)
+            print('request error, sleep 120s, error_count:', error_count)
+            time.sleep(120)
 
             error_count = 0
             index = stock_list.index(stock_id)
-            initialize(stock_list[index + 1])
+            mainProcess(stock_list[index + 1], year, month)
 
 def mainProcess(from_id, from_year, from_month):
     global filterExistFile
@@ -135,9 +136,9 @@ def mainProcess(from_id, from_year, from_month):
     year = from_year
     month = from_month
 
-    for stock_id in stock_list:
-        if stock_id >= from_id and stock_id < 9999:
-            while year < end_year or (year == end_year and month <= end_month):
+    while year < end_year or (year == end_year and month <= end_month):
+        for stock_id in stock_list:
+            if (stock_id >= from_id or year > from_year) and stock_id < 9999:
                 # 檔案不存在才爬
                 if filter_exist_file and not os.path.isfile(getFilenameWithPath(stock_id, year, month)):
                     # 建立資料夾
@@ -148,18 +149,11 @@ def mainProcess(from_id, from_year, from_month):
                     getHistory(stock_id, year, month)
                     sleepStrategy()
 
-                if year == end_year and month == end_month:
-                    if stock_id == stock_list[-1]:
-                        break
-                    else:
-                        year = begin_year
-                        month = begin_month
-                        break
-                elif month == 12:
-                    month = begin_month
-                    year += 1
-                else:
-                    month += 1
+        if month == 12:
+            month = begin_month
+            year += 1
+        else:
+            month += 1
 
 def appendToExcel(data, filename):
     df = pd.DataFrame(columns = exportColumns, data = data)
@@ -170,15 +164,15 @@ def appendToExcel(data, filename):
         df.to_csv(filename, header = True, index = False)
 
 def sleepStrategy():
-    sleep_time = 0
+    sleep_time = random.randrange(2, 4)
 
     if request_count / 10 > 0:
         if request_count % 60 == 0:
             getProxy()
         elif request_count % 30 == 0:
-            sleep_time += random.randrange(10, 15)
+            sleep_time += 20
         elif request_count % 10 == 0:
-            sleep_time += random.randrange(1, 3)
+            sleep_time += 10
 
     print('sleep', sleep_time, 'sec to next request, request_count:', request_count)
     time.sleep(sleep_time)
