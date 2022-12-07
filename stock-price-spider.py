@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import time
 import random
+import re
 from bs4 import BeautifulSoup
 
 http_proxy_list = []
@@ -16,9 +17,9 @@ error_count = 0
 begin_year = 2010
 begin_month = 1
 end_year = 2022
-end_month = 9
+end_month = 12
 filter_exist_file = True
-use_proxy = True
+use_proxy = False
 
 def resetProxyList():
     global http_proxy_list
@@ -70,21 +71,30 @@ def checkDir(path):
         os.mkdir(path, 755)
         os.system('sudo chmod 755 ' + path)
 
+def makeAllDir():
+    for stock_id in stock_list:
+        # 建立資料夾
+        save_path = main_path + str(stock_id)
+        checkDir(save_path)
+
 def initialize(from_id = 1101, from_year = begin_year, from_month = begin_month):
     getProxy()
     checkDir(main_path)
+    makeAllDir()
     getStockList()
     mainProcess(from_id, from_year, from_month)
 
 def curl(date, stock_id):
     url = 'https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=' + date + '&stockNo=' + str(stock_id)
-    proxy = getRandomProxy()
-
-    print('url:', url, 'proxy:', proxy)
 
     if use_proxy:
+        proxy = getRandomProxy()
+        print('url:', url, 'proxy:', proxy)
+
         return requests.get(url, proxies = proxy, timeout = 3)
     else:
+        print('url:', url)
+
         return requests.get(url, timeout = 3)
 
 def uniformDate(year, month):
@@ -108,31 +118,35 @@ def getHistory(stock_id, year, month):
         request_count += 1
         res = curl(date, stock_id)
         res_json = res.json()
+        filename = getFilenameWithPath(stock_id, year, month)
 
-        if res_json['stat'] == 'OK':
-            filename = getFilenameWithPath(stock_id, year, month)
-            appendToExcel(res_json['data'], filename)
+        if res_json['stat'] == 'OK' and res_json['date'] == '{:04}{:02}01'.format(year, month):
+            res_stock_id = re.search(r'(\d{4})', res_json['title'])
+
+            if res_stock_id != None and str(stock_id) == res_stock_id.group(1):
+                filename = getFilenameWithPath(stock_id, year, month)
+                appendToExcel(res_json['data'], filename)
+
+                error_count = 0
+            else:
+                raise Exception('request error')
         elif (res_json['stat'] == '很抱歉，沒有符合條件的資料!'):
+            appendToExcel([], filename)
             print('no data')
         else:
             raise Exception('request error')
     except:
+        sleepStrategy()
+
         if error_count < 2:
             print('request error, error_count:', error_count)
 
             error_count += 1
-            mainProcess(stock_id, year, month)
+            getHistory(stock_id, year, month)
         else:
-            print('request error, sleep 120s, error_count:', error_count)
-            time.sleep(120)
-
-            error_count = 0
-            index = stock_list.index(stock_id)
-            mainProcess(stock_list[index + 1], year, month)
+            print('request error, error_count:', error_count, 'goto next stock')
 
 def mainProcess(from_id, from_year, from_month):
-    global filterExistFile
-
     year = from_year
     month = from_month
 
@@ -140,23 +154,21 @@ def mainProcess(from_id, from_year, from_month):
         for stock_id in stock_list:
             if (stock_id >= from_id or year > from_year) and stock_id < 9999:
                 # 檔案不存在才爬
-                if filter_exist_file and not os.path.isfile(getFilenameWithPath(stock_id, year, month)):
-                    # 建立資料夾
-                    save_path = main_path + str(stock_id)
-                    checkDir(save_path)
-
-                    # 爬資料
+                if filter_exist_file and os.path.isfile(getFilenameWithPath(stock_id, year, month)):
+                    print('file exist:', getFilenameWithPath(stock_id, year, month))
+                else:
                     getHistory(stock_id, year, month)
                     sleepStrategy()
 
-        if month == 12:
-            month = begin_month
+        if month >= 12:
+            month = 1
             year += 1
         else:
             month += 1
 
 def appendToExcel(data, filename):
     df = pd.DataFrame(columns = exportColumns, data = data)
+    print('save:' + filename)
 
     if os.path.isfile(filename):
         df.to_csv(filename, mode = 'a', header = False, index = False)
@@ -164,15 +176,13 @@ def appendToExcel(data, filename):
         df.to_csv(filename, header = True, index = False)
 
 def sleepStrategy():
-    sleep_time = random.randrange(2, 4)
+    sleep_time = random.randrange(3, 4)
 
     if request_count / 10 > 0:
         if request_count % 60 == 0:
             getProxy()
-        elif request_count % 30 == 0:
-            sleep_time += 20
         elif request_count % 10 == 0:
-            sleep_time += 10
+            sleep_time += 5
 
     print('sleep', sleep_time, 'sec to next request, request_count:', request_count)
     time.sleep(sleep_time)

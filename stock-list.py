@@ -19,8 +19,10 @@ stock_list = []
 links = sp.select('td a')
 
 for link in links:
-    matches = re.search(r'(\d+)(\S+)', link.text)
-    stock_list.append([matches.group(1),  matches.group(2)])
+    matches = re.search(r'(\d+)(.*)', link.text)
+
+    if matches != None:
+        stock_list.append([matches.group(1),  matches.group(2)])
 
 columns = ['stock_id', 'company']  #幫收集到的資料設定表頭
 
