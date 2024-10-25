@@ -47,7 +47,7 @@ columns = ['code', 'company']  #幫收集到的資料設定表頭
 df = pd.DataFrame(stock_list, columns = columns)
 #將Twstock抓到的清單轉成Data Frame格式的資料表
 
-filename = './stock-list.csv'
+filename = './stock-list-v2.csv'
 #指定Data Frame轉存Csv檔案的檔名與路徑
 
 df.to_csv(filename, encoding = 'utf-8-sig', index = False)
