@@ -6,6 +6,7 @@ Description: 深度優先, 時間倒序
 @author: Lonelygod
 """
 
+import json
 import requests
 import pandas as pd
 import os
@@ -28,14 +29,18 @@ main_path = './history/'
 user='root'
 request_count = 0
 error_count = 0
-begin_date = datetime.datetime(2024, 4, 1)
-end_date = datetime.datetime(2017, 1, 1)
+begin_date = datetime.datetime(2024, 5, 1)
+end_date = datetime.datetime(2013, 1, 1)
 filter_exist_file = True
+skip = True
+skip_until_code = '00900'
 
 def getStockList():
-    data = pd.read_csv('./stock-list.csv', dtype = str)
-    global stock_list
-    stock_list = list(data['code'][:])
+    with open('./STOCK_DAY_ALL.json', 'r') as f:
+        data = json.load(f)
+
+        global stock_list
+        stock_list = [stock['Code'] for stock in data]
 
 def checkDir(path):
     if (not os.path.exists(path)):
@@ -63,7 +68,7 @@ def curl(date, code):
     url = api_url + '?date=' + date.strftime("%Y%m%d") + '&code=' + str(code)
     print('url:', url)
 
-    return requests.get(url, timeout = 3)
+    return requests.get(url, timeout = 10)
 
 def getFilenameWithPath(code, date):
     return main_path + str(code) + '/' + date.strftime("%Y_%-m") + '.csv'
@@ -76,13 +81,13 @@ def myCurl(date, code):
     s = requests.Session()
 
     # 創建一個 Retry 物件，設定最大重試次數和回滾因子
-    retries = Retry(total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    retries = Retry(total=2, backoff_factor=3, status_forcelist=[500, 502, 503, 504])
 
     # 創建一個 HTTPAdapter 並將 Retry 物件傳入
     s.mount('http://', HTTPAdapter(max_retries=retries))
 
     # 使用 Session 物件發送請求
-    return s.get(url, timeout=3)
+    return s.get(url, timeout=10)
 
 def getHistory(code, date) -> bool:
     global request_count
@@ -92,7 +97,7 @@ def getHistory(code, date) -> bool:
     res_json = res.json()
     filename = getFilenameWithPath(code, date)
 
-    if res_json['stat'] == 'OK' and res_json['date'] == date.strftime("%Y%m01"):
+    if 'stat' in res_json and res_json['stat'] == 'OK' and res_json['date'] == date.strftime("%Y%m01"):
         res_code = re.search(r'([0-9]{4,8}[A-Z]{0,2})', res_json['title'])
 
         if res_code != None:
@@ -108,9 +113,13 @@ def getHistory(code, date) -> bool:
     return False
 def mainProcess(from_date):
     date = from_date
+    global skip
 
     for code in stock_list:
-        while date >= end_date:
+        if code == skip_until_code and skip == True:
+            skip = False
+
+        while skip == False and date >= end_date:
             if date <= from_date:
                 if filter_exist_file and os.path.isfile(getFilenameWithPath(code, date)):
                     print('file exist:', getFilenameWithPath(code, date))
@@ -123,6 +132,7 @@ def mainProcess(from_date):
             date = date - datetime.timedelta(days=1)
             if date.day != 1:
                 date = date.replace(day=1)
+        date = from_date
 
 def appendToExcel(data, filename):
     df = pd.DataFrame(columns = exportColumns, data = data)
@@ -134,7 +144,7 @@ def appendToExcel(data, filename):
         df.to_csv(filename, header = True, index = False)
 
 def sleepStrategy():
-    print('sleep', 0.3, 'sec to next request, request_count:', request_count)
-    time.sleep(0.3)
+    print('sleep', 0.2, 'sec to next request, request_count:', request_count)
+    time.sleep(0.2)
 
 initialize()
